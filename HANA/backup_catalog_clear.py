@@ -86,7 +86,7 @@ inst_no = get_sid(sid_cmd)
 
 keys = check_G_key(inst_no)
 
-if key:
+if keys:
 	for each in keys:
 		del_bkp_ctlg_entries(inst_no, each)
 
