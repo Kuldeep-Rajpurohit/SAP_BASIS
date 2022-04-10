@@ -42,8 +42,9 @@ sid = get_sid(sid_cmd)
 print("\nSID : {0}".format(sid))
 
 
-run_dir_path_cmd = "su - sqd%s \"dbmcli -U c -nohold param_directget RunDirectoryPath\"| awk '{print $2}'"% sid.lower()
+run_dir_path_cmd = "su - sqd%s -c \"dbmcli -U c -nohold param_directget RunDirectoryPath\"| awk '{print $2}'"% sid.lower()
 run_dir_path = get_run_dir_path(run_dir_path_cmd)
 print("Run directory path : {0}\n".format(run_dir_path))
 get_latest_cdb(run_dir_path)
 
+exit(0)
