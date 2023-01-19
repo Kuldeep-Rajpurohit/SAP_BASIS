@@ -15,6 +15,18 @@ def check_db_type():
         result = unix_cmd(cmd)
         return("sapdb" in result)
 
+def update_flagfile(val):
+    file_name = "/var/log/nagios/heal_db_chkdata_flagfile"
+    with open(file_name, 'w') as ffile:
+        ffile.write(val)
+    return
+
+def get_flagvalue():
+    
+    file_name = "/var/log/nagios/heal_db_chkdata_flagfile"
+    with open(file_name, 'r') as ffile:
+        flagValue = ffile.read()
+        return flagValue
 
 class MaxDB:
 
@@ -47,14 +59,26 @@ class MaxDB:
             exit(2)
 
 
-maxdb = MaxDB()
-maxdb.get_SID()
-already_running = maxdb.check_data_running()
+def main():
+    flag = get_flagvalue()
+    if flag == '1':
+        print("Self healing already in process. Quitting")
+        exit(0)
+    else:
+        maxdb = MaxDB()
+        maxdb.get_SID()
+        already_running = maxdb.check_data_running()
+        
+        if not already_running:
+            maxdb.trigger_checkdata()
+            print("Self healing triggered.")
+            update_flagfile('1')
+            
+        else:
+            print("Check data already running.")
+            update_flagfile('1')
+    
 
-if not already_running:
-    maxdb.trigger_checkdata()
-else:
-    print("Check data already running.")
+if __name__ == '__main__':
+    main()
 
-
-exit(0)
