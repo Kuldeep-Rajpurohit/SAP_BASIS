@@ -1,8 +1,9 @@
 #!/usr/bin/env python3.8
 
 import subprocess
-import os
+import os, smtplib
 import datetime
+from socket import gethostbyaddr, gethostname
 
 
 def unix_cmd(cmd):
@@ -15,6 +16,24 @@ def check_db_type():
         result = unix_cmd(cmd)
         return("sapdb" in result)
 
+
+def sendMail(msg):
+    smtpServer = 'localhost'
+    hostname = gethostbyaddr(gethostname())[0]
+    sender = 'root@{}'.format(hostname)
+    text = """Hi Team,\n\n{}\n\nRegards,\nStackStorm Team""".format(msg)
+    subject = 'ST2 Alert : StackStorm Self Healing Report of Hana Db Backup Catalog on {}'.format(hostname)
+    message = 'Subject: {}\n\n{}'.format(subject, text)
+    notification_receivers = ['kuldeep.rajpurohit@sap.com']
+    try:
+        smtpObj = smtplib.SMTP(smtpServer)
+        smtpObj.sendmail(sender, notification_receivers, message)
+        print("Email Successfully sent")
+    except smtplib.SMTPException:
+        print("Error: unable to send email")
+        return(2)
+
+    
 def update_flagfile(val):
     file_name = "/var/log/nagios/heal_db_chkdata_flagfile"
     with open(file_name, 'w') as ffile:
@@ -42,7 +61,9 @@ class MaxDB:
             output = int(unix_cmd(cmd).strip("\n"))
             return(output)
         except:
-            print("Error finding running processes from database.")
+            msg = "Error finding running processes from database."
+            print(msg)
+            sendMail(msg)
             exit(2)
 
 
@@ -53,9 +74,13 @@ class MaxDB:
             if self.check_data_running():
                 print("Triggered check data.")
             else:
-                print("Failed to trigger check data. Kindly trigger manually")
+                msg = "Failed to trigger check data. Kindly trigger manually"
+                print(msg)
+                sendMail(msg)
         except:
-            print("Error triggering check data. Check manually.")
+            msg = "Error triggering check data. Check manually."
+            print(msg)
+            sendMail(msg)
             exit(2)
 
 
@@ -77,8 +102,13 @@ def main():
         else:
             print("Check data already running.")
             update_flagfile('1')
+
+try: 
+    if __name__ == '__main__':
+        main()
+
+except:
+    msg = "Critical. Error checking the status"
+    print(msg)
+    sendMail(msg)
     
-
-if __name__ == '__main__':
-    main()
-
