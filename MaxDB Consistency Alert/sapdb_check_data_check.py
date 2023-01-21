@@ -15,6 +15,7 @@ def check_db_type():
     result = unix_cmd(cmd)
     return("sapdb" in result)
 
+
 def flag_file():
     try:
         file_name = "/var/log/nagios/heal_db_chkdata_flagfile"
@@ -26,7 +27,7 @@ def flag_file():
             os.mkdir(file_path)
             with open(file_name, 'w') as ffile:
                 ffile.write('0')
-                return('0')
+                return(0, '0')
         
         
         else:
@@ -34,32 +35,28 @@ def flag_file():
             if os.path.exists(file_name):
                 with open(file_name, 'r') as ffile:
                     flagValue = ffile.read()
-                    return flagValue
+                    return (0, flagValue)
             else:
                 with open(file_name, 'w') as ffile:
                     ffile.write('0')
-                    return('0')
+                    return(0, '0')
                 
 
     except:
         print("Critical. Error checking flagfile status.")
-        exit(2)
-        
-    return
-    
+        return(2, None)
     
 
 def update_flagfile(val):
     file_name = "/var/log/nagios/heal_db_chkdata_flagfile"
     with open(file_name, 'w') as ffile:
         ffile.write(val)
-    return
+    
 
 
 def check_age(data, flag):
     try:
         data = data.split("\n")
-
         for each in data:
             if "Timestamp" in each:
                 stamp = each
@@ -71,15 +68,15 @@ def check_age(data, flag):
         diff = present_day - last_day
         
         if flag == 0:
-            return(diff.days)
+            return(0, diff.days)
             
         elif flag == 1:
             time_in_secs = diff.total_seconds()
             time_in_hours = int(divmod(time_in_secs, 3600)[0])
-            return(time_in_hours)
+            return(0, time_in_hours)
     except:
         print("Error finding check data process details.")
-        exit(1)
+        return(1, None)
 
 
 class MaxDB:
@@ -88,17 +85,16 @@ class MaxDB:
         cmd = "cat /etc/fstab | grep -i sapdata1 | awk '{print $2}'"
         result = unix_cmd(cmd)
         self.sid = result.split("/")[2]
-        return
     
     
     def get_rundirpath(self):
         try:
             cmd = "su - sqd%s -c \"dbmcli -U c -nohold param_directget RunDirectoryPath\" | grep -i RunDirectoryPath | awk '{print $2}'"%self.sid.lower()
             self.rundirpath = unix_cmd(cmd).strip("\n")
-            return
+            return(0)
         except:
-            print("Error finding RunDirectory path.")
-            exit(1)
+            print("Warning : Error finding RunDirectory path.")
+            return(1)
     
     
     def cdb_exists(self):
@@ -109,21 +105,21 @@ class MaxDB:
             if exists:
                 cmd = "cat `ls -altr | grep -i .cdb | tail -1 | awk '{print $9}'`"
                 file_content = unix_cmd(cmd).strip("\n")
-                return(file_content)
+                return(0, file_content)
             else:
-                return(0)
+                return(0, 0)
         except:
-            print("Error finding check data (.cdb) files.")
-            exit(1)
+            print("Warning : Error finding check data (.cdb) files.")
+            return(1, None)
             
     def check_data_running(self):
         try:
             cmd = "su - sqd%s -c \"x_cons %s show active\"| grep -i chkdata | wc -l"%(self.sid.lower(), self.sid)
             output = int(unix_cmd(cmd).strip("\n"))
-            return(output)
+            return(0, output)
         except:
-            print("Error finding running processes from database.")
-            exit(1)
+            print("Warning : Error finding running processes from database.")
+            return(1, None)
 
 
     def check_status(self, data):
@@ -132,11 +128,15 @@ class MaxDB:
             for each in data:
                 if "failure" in each.lower():
                     # print("Latest check data failed.")
-                    return False
-            return True
+                    return (0, False)
+            return (0, True)
         except:
             print("Error finding check data status. Check manually.")
-            exit(1)
+            return(1, None)
+
+
+# exit_code 0 means no error (through-out the script)
+exit_code = 0
 
 
 def main():
@@ -144,69 +144,95 @@ def main():
     isMaxdb = check_db_type()
     
     if isMaxdb:
-        
-        flag = flag_file()
-
-        maxdb = MaxDB()
-        maxdb.get_SID()
-        maxdb.get_rundirpath()
-        exists = maxdb.cdb_exists()
-        running = maxdb.check_data_running()
-        
-        if running:
-            # check data is already running check its age
-            if exists:
-                hours = check_age(exists, 1)
-                if hours > 48:
-                    # print("Time in hours : {}".format(hours))
-                    print("Warning. Check data seems to be hung, Kindly check manually.")
-                    exit(1)
-    
-                else:
-                    # print("Time in hours : {}".format(hours))
-                    print("OK. Check data is running.")
-                    # update_flagfile('0')
-                    exit(0)
+        exit_code, flag = flag_file()
+        if exit_code == 0:
             
-            else:
-                print("Warning. Check .cdb files not being created in /dbahist path, check manually.")
-                exit(1)
-        
-        else:
-            # check data is not running check the status of last check data file 
-            if exists:
-                # check if it is successfull
-                successfull = maxdb.check_status(exists)
-                if successfull:
-                    days = check_age(exists, 0)
-                    if days < 45:
-                        print("OK. Check data is {} days old. Hence no actions taken.\n".format(days))
-                        update_flagfile('0')
-                        exit(0)
+            maxdb = MaxDB()
+            maxdb.get_SID()
+            exit_code = maxdb.get_rundirpath()
+            if exit_code == 0:
+                exit_code, exists = maxdb.cdb_exists()
+                if exit_code == 0:
+                    exit_code, running = maxdb.check_data_running()
+                    if exit_code == 0:
+                        if running:
+                            # check data is already running check its age
+                            if exists:
+                                exit_code, hours = check_age(exists, 1)
+                                if exit_code == 0:
+                                    if hours > 48:
+                                        # print("Time in hours : {}".format(hours))
+                                        print("Warning. Check data seems to be hung, Kindly check manually.")
+                                        return(1)
+                        
+                                    else:
+                                        # print("Time in hours : {}".format(hours))
+                                        print("OK. Check data is running.")
+                                        # update_flagfile('0')
+                                        return(0)
+                                else:
+                                    return(exit_code)
+                            else:
+                                print("Warning. Check .cdb files not being created in /dbahist path, check manually.")
+                                return(1)
+                        
+                        else:
+                            # check data is not running check the status of last check data file 
+                            if exists:
+                                # check if it is successfull
+                                exit_code, successfull = maxdb.check_status(exists)
+                                if exit_code == 0:
+                                    if successfull:
+                                        exit_code, days = check_age(exists, 0)
+                                        if exit_code == 0:
+                                            if days < 45:
+                                                print("OK. Check data is {} days old. Hence no actions taken.".format(days))
+                                                update_flagfile('0')
+                                                return(0)
+                                            else:
+                                                print("Critical. Check data is {} days old".format(days))
+                                                # update_flagfile('1')
+                                                # maxdb.trigger_checkdata()
+                                                return(2)
+                                        else:
+                                            return(exit_code)
+                                    else:
+                                        print("Critical. Last check data failed.")
+                                        # maxdb.trigger_checkdata()
+                                        # update_flagfile('1')
+                                        return(2)
+                                else:
+                                    return(exit_code)
+                            else:
+                                print("Critical. Check data has not ran before on this system before.")
+                                # maxdb.trigger_checkdata()
+                                # update_flagfile('1')
+                                return(2)
                     else:
-                        print("Critical. Check data is {} days old".format(days))
-                        # update_flagfile('1')
-                        # maxdb.trigger_checkdata()
-                        exit(2)
-    
+                        return(exit_code)
+                    
                 else:
-                    print("Critical. Last check data failed.")
-                    # maxdb.trigger_checkdata()
-                    # update_flagfile('1')
-                    exit(2)
-    
+                    return(exit_code)
+        
             else:
-                print("Critical. Check data has not ran before on this system before.")
-                # maxdb.trigger_checkdata()
-                # update_flagfile('1')
-                exit(2)
-
+                return(exit_code)
+        else:
+            return(exit_code)
     
     else:
         print("Not a Maxdb system")
-        exit(0)
+        return(0)
     
 
+try:
+    if __name__ == '__main__':
+        exit_code = main()
 
-if __name__ == '__main__':
-    main()
+except:
+    print("Critical. Check data script failed")
+    exit_code = 2
+
+
+# print(exit_code) # test purpose line, to be commented later
+exit(exit_code)
+
