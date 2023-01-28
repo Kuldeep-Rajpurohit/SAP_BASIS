@@ -98,27 +98,21 @@ class MaxDB:
 
 
     def trigger_checkdata(self):
-        try:
-            cmd = """su - sqd{} -c 'dbmcli -U c db_execute check data &' """.format(self.sid.lower())
-            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-            
-            # check if .cdb file is generated
-            temp = self.check_file_generation()
-            if temp:
-                # print("Self healing triggered (file generated)")
-                return(True)
-            
-            # check process list
-            temp = self.check_data_running()[1]
-            if temp > 0:
-                # print("Triggered check data (process list))")
-                return(True)
-            return(False)
-        except:
-            msg = "Error triggering check data. Check manually."
-            print(msg)
-            sendMail(msg)
-            return(2)
+        cmd = """su - sqd{} -c 'dbmcli -U c db_execute check data &' """.format(self.sid.lower())
+        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        
+        # check if .cdb file is generated
+        temp = self.check_file_generation()
+        if temp:
+            # print("Self healing triggered (file generated)")
+            return(True)
+        
+        # check process list
+        temp = self.check_data_running()[1]
+        if temp > 0:
+            # print("Triggered check data (process list))")
+            return(True)
+        return(False)
 
         
 exit_code = 0
