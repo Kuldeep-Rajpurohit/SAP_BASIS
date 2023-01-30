@@ -1,5 +1,22 @@
 #!/usr/bin/env python3.8
 
+
+#########################################################
+###       Author        : Kuldeep Rajpurohit          ###
+###       Cuser ID      : C5315737                    ###
+###       Last updated  : 4th Jan 2023                ###
+###       Title         : Maxdb Consistency healing   ###
+#########################################################
+
+# Purpose of the script :
+"""
+Trigger maxdb consistency check for a maxdb system if an event is triggered by a maxdb check script from nagios check script.
+Send an alert failure mail if script fails
+"""
+
+
+
+
 import subprocess
 import os, smtplib
 import datetime, time
@@ -143,7 +160,6 @@ def main():
                 update_flagfile('1')
         else:
             return(exit_code)
-
 
 try: 
     if __name__ == '__main__':
