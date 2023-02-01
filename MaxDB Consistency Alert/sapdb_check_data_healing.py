@@ -4,7 +4,7 @@
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 4th Jan 2023                ###
+###       Last updated  : 16th Jan 2023               ###
 ###       Title         : Maxdb Consistency healing   ###
 #########################################################
 
@@ -13,8 +13,6 @@
 Trigger maxdb consistency check for a maxdb system if an event is triggered by a maxdb check script from nagios check script.
 Send an alert failure mail if script fails
 """
-
-
 
 
 import subprocess
@@ -43,7 +41,7 @@ def sendMail(msg):
     text = """Hi Team,\n\n{}\n\nRegards,\nStackStorm Team""".format(msg)
     subject = 'ST2 Alert : StackStorm Self Healing Report of Hana Db Backup Catalog on {}'.format(hostname)
     message = 'Subject: {}\n\n{}'.format(subject, text)
-    notification_receivers = ['kuldeep.rajpurohit@sap.com']
+    notification_receivers = ['DL_5F97A8BB7883FF027EE82632@global.corp.sap','kuldeep.rajpurohit@sap.com']
     try:
         smtpObj = smtplib.SMTP(smtpServer)
         smtpObj.sendmail(sender, notification_receivers, message)
@@ -87,6 +85,7 @@ class MaxDB:
 
 
     def check_data_running(self):
+        # print("x_cons check")
         try:
             cmd = """su - sqd{} -c \"x_cons {} show active\" | grep -i chkdata | wc -l """.format(self.sid.lower(), self.sid)
             output = int(unix_cmd(cmd).strip("\n"))
@@ -99,6 +98,7 @@ class MaxDB:
 
 
     def check_file_generation(self):
+        # print("file generation check")
         self.get_rundirpath()
         os.chdir(self.rundirpath+"/dbahist")
         cmd = "ls -altr | grep -i .cdb | tail -3 | wc -l"
@@ -109,15 +109,20 @@ class MaxDB:
             # print(file_name)
             file_time = datetime.datetime(int(file_name[:4]), int(file_name[4:6]), int(file_name[6:8]), int(file_name[8:10]), int(file_name[10:12]), int(file_name[12:14]))
             # print(file_time)
+            # print("answer of generation", (file_time > self.start_time))
             return(file_time > self.start_time)
         else:
+            # print("return false for file generation")
             return False
 
 
     def trigger_checkdata(self):
-        cmd = """su - sqd{} -c 'dbmcli -U c db_execute check data &' """.format(self.sid.lower())
-        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        
+        try:
+            cmd = """su - sqd{} -c 'dbmcli -U c db_execute check data &' """.format(self.sid.lower())
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        except:
+            # print("In except block of trigger.")
+            pass        
         # check if .cdb file is generated
         temp = self.check_file_generation()
         if temp:
@@ -135,31 +140,36 @@ class MaxDB:
 exit_code = 0
 
 def main():
-    start_time = datetime.datetime.now()
-    time.sleep(1)
-    flag = get_flagvalue()
-    if flag == '1':
-        print("Self healing already in process. Quitting")
-        return(0)
-    else:
-        maxdb = MaxDB()
-        maxdb.get_SID()
-        maxdb.start_time = start_time
-        exit_code, already_running = maxdb.check_data_running()
-        if exit_code == 0:
-            if not already_running:
-                if maxdb.trigger_checkdata():
-                    print("Self healing triggered.")
-                    update_flagfile('1')
-                else:
-                    print("Failed to trigger check data. Kindly trigger manually")
-                    sendMail("Failed to trigger check data. Kindly trigger manually")
-                    update_flagfile('1')               
-            else:
-                print("Check data already running.")
-                update_flagfile('1')
+    if check_db_type():
+        start_time = datetime.datetime.now()
+        time.sleep(1)
+        flag = get_flagvalue()
+        if flag == '1':
+            print("Self healing already in process. Quitting")
+            return(0)
         else:
-            return(exit_code)
+            maxdb = MaxDB()
+            maxdb.get_SID()
+            maxdb.start_time = start_time
+            exit_code, already_running = maxdb.check_data_running()
+            if exit_code == 0:
+                if not already_running:
+                    if maxdb.trigger_checkdata():
+                        print("Self healing triggered.")
+                        update_flagfile('1')
+                    else:
+                        print("Failed to trigger check data. Kindly trigger manually")
+                        sendMail("Failed to trigger check data. Kindly trigger manually")
+                        update_flagfile('1')               
+                else:
+                    print("Check data already running.")
+                    update_flagfile('1')
+            else:
+                return(exit_code)
+
+    else:
+        print("OK. Not a MaxDB system")
+        return(0)
 
 try: 
     if __name__ == '__main__':
