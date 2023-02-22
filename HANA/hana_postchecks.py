@@ -4,7 +4,7 @@
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 3rd Aug 2022                ###
+###       Last updated  : 15th Sep 2022               ###
 ###       Title         : Hana Post Installation      ###
 #########################################################
 
@@ -14,8 +14,6 @@ The below script performs the Hana post installation checks as per GLDS standard
 https://wiki.one.int.sap/wiki/display/ITLABS/SAP+HANA+-+Post+installation+Checks
 """
 
-
-
 import os
 import sys
 import subprocess
@@ -23,580 +21,112 @@ import getpass
 
 
 
-print("=========================================================================")
-print("                     Hana Post Installation Checks                       ")
-print("=========================================================================")
+class color:
+    red = '\033[91m'
+    green = '\033[92m'
+    bold = '\033[1m'
+    end = '\033[0m'
 
-
+print(color.bold,"                     Hana Post Installation Checks                       ", color.end)
 print("System Information : ")
 
-# function to run unix command and return output in standard text format
+
 def unix_cmd(cmd):
     output = subprocess.check_output(cmd, shell=True)
     return(output.decode())
 
-
-# check key connectivity
 def check_key_connectivity(user, key):
-    
-    cmd = """su - {} -c \"hdbsql -U {} -j '\\s' \" """.format(user, key)
-    output = unix_cmd(cmd)
-    # print(output)
-    
-    if "host" in output.lower() and "sid" in output.lower() and "dbname" in output.lower() and "user" in output.lower() and "kernel version" in output.lower():
-        return True
-    else:
-        return False
-    
+    try:
+        cmd = """su - {} -c \"hdbsql -U {} -j '\\s' \" """.format(user, key)
+        output = unix_cmd(cmd)
+        # print(output)
+        if "host" in output.lower() and "sid" in output.lower() and "dbname" in output.lower() and "user" in output.lower() and "kernel version" in output.lower():
+            return True
+        else:
+            return False
+    except:
+        print("** ERROR finding keys status.")
+        exit(0)
+
 
 class Hana:
     
-    def get_instance_no(self):
-
+    def check_db_type(self):
         try:
-            cmd = """cat /etc/fstab | grep -i /sapdata | grep -i hdb | awk '{print $2}' """
-            output = unix_cmd(cmd)
-            # print(output)
-            self.db_user = output.split("/")[2].lower() + "adm"
+            cmd = """cat /etc/fstab | grep -i sapdata1 | awk '{print $2}' """
+            output = unix_cmd(cmd).strip()
+            self.temp_data = output
+            
+            # db type is hana
+            if 'hdb' in output:
+                self.is_hana = True
+            # db type is not hana
+            else:
+                self.is_hana = False
+                
+        except:
+            # not a hana system or not standard fs
+            self.is_hana = False
+        return(self.is_hana)
+
+    def get_sys_details(self):
+        try:
+            temp = self.temp_data.split('/')[2].lower()
+            self.db_user = temp + 'adm'
             self.inst_no = self.db_user[1:3]
             self.hostname = os.uname()[1].strip()
-            self.restart_needed = False
-            self.ghur_pass = ''
-            if "ccwdf" in self.hostname or "gcl" in self.hostname:
-                self.cc_or_gcp = True
-            else:
-                self.cc_or_gcp = False
-            print("     1. Instance number          : {}".format(self.inst_no))
-            print("     2. DB user                  : {}".format(self.db_user))
-            print("     3. hostname                 : {}".format(self.hostname))
-            print("     4. CC or GCP                : {}".format(self.cc_or_gcp))
-            return
-        except:
-            print("Unable to get instance number.")
-            exit(0)
-
-    
-    def get_db_status(self):
-
-        try:
-            cmd = """su - {} -c \"sapcontrol -nr {} -function GetProcessList\" 2>/dev/null | grep -i hdb """.format(self.db_user, self.inst_no)
-            output = unix_cmd(cmd)
-            # print(output)
-            if "yellow" in output.lower() or "gray" in output.lower():
-                self.db_status = False
-                # print("DB services are not running....")
-            else:
-                self.db_status = True
-                # print("     5. DB status                : {}".format(self.db_status))
-
-        except:
-            print(" **ERROR**   :    DB services are not running.")
-            exit(0)
-        
-        if self.db_status:
-            return self.db_status
-        else:
-            print(" **ERROR**   :    DB services are not running.")
-            exit(0)
-        return
-
-
-    def get_sid(self):
-
-        # try to get SID from fstab
-        try:
+            self.ghur_pass = None
             cmd = """cat /etc/fstab | grep -i sapmnt | grep -iv sapmnt_db | awk '{print $2}' """
             output = unix_cmd(cmd)
             self.sid = output.split("/")[2].strip()
-            # self.sid = 'H10'
             self.app_user = self.sid.lower()+"adm"
-            print("     6. SID                      : {}".format(self.sid))
-            # print("     7. App user                 : {}".format(self.app_user))
-
+            self.sys_pass = None
+            self.schema_user = None
+            print("     1. Instance number          :   {}".format(self.inst_no))
+            # print("      DB user                  : {}".format(self.db_user))
+            print("     2. SID                      :   {}".format(self.sid))
+            # print("      App user                 : {}".format(self.app_user))
             return
 
         except:
+            print(color.red, "Unable to get system details.", color.end)
+            exit(0)  
 
-            # try to get from hdb services
-            try:
-                cmd = """su - {} -c \"sapcontrol -nr {} -function GetProcessList \" | grep -i index""".format(self.db_user,self.inst_no)
-                output = unix_cmd(cmd).split(",")[1].split("-")[1]
-                self.sid = output
-                print("     6. SID                      : {}".format(self.sid))
-                return
-
-            except:
-                print("     6. Unable to find SID.")
-                exit(0)
-
+    def get_db_status(self):
+        try:
+            cmd = """su - {} -c \"sapcontrol -nr {} -function GetProcessList\" 2>/dev/null | grep -i hdb """.format(self.db_user, self.inst_no)
+            output = unix_cmd(cmd)
+            if "yellow" in output.lower() or "gray" in output.lower():
+                self.db_status = False
+            else:
+                self.db_status = True
+            return self.db_status
+        except:
+            print(color.red, " **ERROR**   :    DB services are not running.", color.end)
+            exit(0)
 
     def get_version(self):
         try:
-
             cmd = """ su - {} -c \"HDB version\" 2>/dev/null | grep -i version | tail -1 """.format(self.db_user, self.inst_no)
             output = unix_cmd(cmd).split(":")[1].strip()
-
             self.db_version = output
-            print("     1. DB version                                     : {}".format(self.db_version))
-            return
+            print("     1. DB version                                      :   {}".format(self.db_version))
         except:
-            print("     1. Unable to get DB version.")
-            exit(0)
+            print(color.red, "     1. Unable to get DB version.", color.end)
 
-
-    def check_keys(self):
-        try:
-            cmd = """su - {} -c \"hdbuserstore list\" 2>/dev/null | grep -i key | grep -iv file """.format(self.db_user)
-            output = unix_cmd(cmd)
-            
-            if "bkpmon" in output.lower():
-                self.bkpmon = check_key_connectivity(self.db_user, "BKPMON")
-                # print("bkpmon :", self.bkpmon)
-            else:
-                self.bkpmon = False
-                
-            if "ghadmin" in output.lower():
-                self.ghadmin = check_key_connectivity(self.db_user, "GHADMIN")
-                # print("ghadmin :", self.ghadmin)
-            else:
-                self.ghadmin = False
-                
-            if "ghtadmin" in output.lower():
-                self.ghtadmin = check_key_connectivity(self.db_user, "GHTADMIN")
-                # print("ghtadmin :", self.ghtadmin)
-            else:
-                self.ghtadmin = False
-                
-        except:
-            self.bkpmon = False
-            self.ghadmin = False
-            self.ghtadmin = False
-            print("Couldn't find BKPMON, GHADMIN, GHTADMIN keys.")
-        
-        return
-
-
-    def get_system_pass(self):
-        self.sys_pass = getpass.getpass(prompt="     Syetem user password : ")
-        return
-
-
-    def user_or_key(self):
-        try:
-            if hana.ghadmin:
-                # True for key
-                self.connect = """hdbsql -U GHADMIN """
-            else:
-                # self.sys_pass = getpass.getpass(prompt="Syetem user password : ")
-
-                self.connect = """hdbsql -i {} -u SYSTEM -d SYSTEMDB -p {}""".format(self.inst_no, self.sys_pass)
-        except:
-            print("Error in finding way to connect.")
-        
-        return
-        
-
-    def check_permanent_license(self):
-        
-        try:
-        
-            cmd = """su - {} -c \" {} -j <<EOF
-                select permanent from m_license
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user, self.connect)
-                
-            output = unix_cmd(cmd)
-            
-            if "true" in output.lower(): 
-                print("     3. Permanent license                              : Present")
-            
-            elif "false" in output.lower():
-                print("     3. Permanent license                              : Not present. Kindly install")
-            else:
-                print(output)
-            
-        except:
-            print("         3. Permanent license                              : Unabel to get permanent license status.")
-            exit(0) 
-            
-        return
-
-
-    def check_fulldb_backup(self):
-
-        try:
-            cmd = """su - {} -c \" {} -j 'select TOP 1 ENTRY_TYPE_NAME,SYS_END_TIME from M_BACKUP_CATALOG'\" | grep -i 'complete data backup' """.format(self.db_user, self.connect)
-            output = unix_cmd(cmd).strip()
-            print("     4. Full DB backup                                 : {}".format(output))
-            return
-
-        except:
-            print("     4. Full DB backup                                 : No intial database backup found: Please check ")
-            return
-
-
-    def set_param_to_std(self, param_name,param_value):
-        
-        if param_name == "basepath_catalogbackup":
-            try:
-                cmd = """su - {} -c \"{} -j <<EOF
-                ALTER SYSTEM ALTER CONFIGURATION ('global.ini', 'SYSTEM') SET ('persistence', 'basepath_catalogbackup') = '{}'
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user, self.connect, param_value)
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.restart_needed = True
-
-            except:
-                print("Unabel to set basepath_catalogbackup parameter, kindly check manually.")
-                
-        elif param_name == "basepath_logbackup":
-        
-            try:
-                cmd = """su - {} -c \"{} -j <<EOF
-                ALTER SYSTEM ALTER CONFIGURATION ('global.ini', 'SYSTEM') SET ('persistence', 'basepath_logbackup') = '{}'
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user, self.connect, param_value)
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.restart_needed = True
-            except:
-                print("Unabel to set basepath_logbackup parameter, kindly check manually.")
-            
-        elif param_name == "basepath_datavolumes":
-        
-            try:
-                cmd = """su - {} -c \"{} -j <<EOF
-                ALTER SYSTEM ALTER CONFIGURATION ('global.ini', 'SYSTEM') SET ('persistence', 'basepath_datavolumes') = '{}'
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user, self.connect, param_value)
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.restart_needed = True
-            except:
-                print("Unabel to set basepath_datavolume parameter, kindly check manually.")
-        
-        elif param_name == "basepath_logvolumes":
-        
-            try:
-                cmd = """su - {} -c \"{} -j <<EOF
-                ALTER SYSTEM ALTER CONFIGURATION ('global.ini', 'SYSTEM') SET ('persistence', 'basepath_logvolumes') = '{}'
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user, self.connect, param_value)
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.restart_needed = True
-            except:
-                print("Unabel to set basepath_logvolumes parameter, kindly check manually.")
-        
-        elif param_name == "password_lock_time":
-            try:
-                cmd = """su - {} -c \"{} -j <<EOF
-                ALTER SYSTEM ALTER CONFIGURATION ('nameserver.ini', 'SYSTEM') SET ('password policy', 'password_lock_time') = '0' WITH RECONFIGURE
-                exit
-                EOF \" 2>/dev/null """.format(self.db_user, self.connect)
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.restart_needed = True
-            except:
-                print("Unabel to set password_lock_time parameter, kindly check manually.")
-        
+    def create_ghur(self, key_name):
+        if self.sys_pass:
+            pass
         else:
-            print("error changing parameter")
+            self.sys_pass = getpass.getpass(prompt="            System user password               : ")
             
-
-    def check_dblevel_params(self):
-        
-        print("     5. DB Parameters : ")
-        # Basepath_logbackup     = /dbarchive/<SID> ====> On-Prem Systems only
-        # Basepath_logbackup     = /dbarchive       ====> GCP & cc
-
-        try:
-            cmd = """su - {} -c \"{} -j <<EOF
-            select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-            exit
-            EOF\" 2>/dev/null | grep -i 'basepath_logbackup' | wc -l""".format(self.db_user, self.connect)
-            
-            output = unix_cmd(cmd).strip()
-            if '1' == output:
-                cmd = """su - {} -c \"{} -j <<EOF
-                select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-                exit
-                EOF\" 2>/dev/null | grep -i 'basepath_logbackup'""".format(self.db_user, self.connect)
-
-                output = unix_cmd(cmd)
-                self.basepath_logbackup = output.split(",")[6].replace('"', '').replace('\n','')
-
-                if self.cc_or_gcp:
-                    
-                    if '/dbarchive' == self.basepath_logbackup: # == self.basepath_logbackup:
-                        print("         a. Basepath_logbackup is standard           : {}".format(self.basepath_logbackup))
-                    else:
-                        print("         a. Basepath_logbackup is not standard       : {}".format(self.basepath_logbackup))
-                        self.set_param_to_std("basepath_logbackup", "/dbarchive")
-                        print("            Basepath_logbackup set to standard       : /dbarchive")
-                        
-                else:
-                    temp = '/dbarchive'+"H"+str(self.inst_no)
-                    
-                    if temp == self.basepath_logbackup:
-                        print("         a. Basepath_logbackup is standard           : {}".format(self.basepath_logbackup))
-                    else:
-                        print("         a. Basepath_logbackup is not standard       : {}".format(self.basepath_logbackup))
-                        self.set_param_to_std("basepath_logbackup", "/dbarchive/"+"/H"+self.inst_no)
-                        print("            Basepath_logbackup set to standard       : {}".format(temp))
-                        
-            elif '0' == output:
-                if self.cc_or_gcp:
-                    print("         a. basepath_logbackup                       : Not set")
-                    self.set_param_to_std("basepath_logbackup", "/dbarchive")
-                    print("            Basepath_logbackup set to standard       : /dbarchive")
-                else:
-                    temp = '/dbarchive'+"H"+str(self.inst_no)
-                    print("         a. basepath_logbackup                       : Not set")
-                    self.set_param_to_std("basepath_logbackup", "/dbarchive/"+"/H"+self.inst_no)
-                    print("            Basepath_logbackup set to standard       : {}".format(temp))
-                    
-            else:
-                print("         a. **ERROR** finding Basepath_logbackup: ")
-
-        except:
-            print("         a. **ERROR** Unable to get basepath_logbackup. Check manually.")
-            
-        # Basepath_catalogbackup = /dbarchive       ====> GCP & cc
-        # Basepath_catalogbackup = /dbarchive/<SID> ====> On-Prem Systems only
-   
-        try:
-            
-            cmd = """su - {} -c \" {} -j <<EOF
-            select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-            exit
-            EOF\" 2>/dev/null | grep -i 'basepath_catalogbackup' | wc -l""".format(self.db_user, self.connect)
-            
-            output = unix_cmd(cmd).strip()
-            
-            if '1' == output:
-                cmd = """su - {} -c \" {} -j <<EOF
-                select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-                exit
-                EOF\" 2>/dev/null | grep -i 'basepath_catalogbackup'""".format(self.db_user, self.connect)
-                                                                                        
-            
-                self.basepath_catalogbackup = unix_cmd(cmd).split(",")[6].replace('"', '').replace('\n','')
-            
-                if self.cc_or_gcp:
-                    if '/dbarchive' == self.basepath_catalogbackup:
-                        print("         b. Basepath_catalogbackup is standard       : {}".format(self.basepath_catalogbackup))
-                    else:
-                        print("         b. Basepath_catalogbackup is not standard   : {}".format(self.basepath_catalogbackup))
-                        self.set_param_to_std("basepath_catalogbackup", "/dbarchive")
-                        print("            Basepath_catalogbackup set to standard   : /dbarchive")
-                
-                else:
-                    temp = '/dbarchive'+"H"+str(self.inst_no)
-                    if temp == self.basepath_logbackup:
-                        print("         b. Basepath_catalogbackup is standard       : {}".format(self.basepath_catalogbackup))
-                    else:
-                        print("         b. Basepath_catalogbackup is not standard   : {}".format(self.basepath_catalogbackup))
-                        self.set_param_to_std("basepath_catalogbackup", temp)
-                        print("            Basepath_catalogbackup set to standard   : {}".format(temp))
-                        # print('Kindly change it to                  : "/dbarchive/H<inst_no>"')
-            
-            elif '0' == output:
-                if self.cc_or_gcp:
-                    print("         b. Basepath_catalogbackup                   : Not set")
-                    self.set_param_to_std("basepath_catalogbackup", "/dbarchive")
-                    print("            Basepath_catalogbackup set to standard   : /dbarchive")
-                else:
-                    temp = '/dbarchive'+"H"+str(self.inst_no)
-                    print("         a. Basepath_catalogbackup                   : Not set")
-                    self.set_param_to_std("Basepath_catalogbackup", temp)
-                    print("            Basepath_catalogbackup set to standard   : {}".format(temp))
-                    
-                
-        except:
-            print("         b. **ERROR** Unable to get basepath_catalogbackup. Check manually.")
- 
-        try:
-            cmd = """su - {} -c \"{} -j <<EOF
-            select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-            exit
-            EOF\" 2>/dev/null | grep -i 'basepath_datavolumes' | wc -l""".format(self.db_user, self.connect)
-            output = unix_cmd(cmd).strip()
-            
-            if '1' == output:
-                cmd = """su - {} -c \"{} -j <<EOF
-                select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-                exit
-                EOF\" 2>/dev/null | grep -i 'basepath_datavolumes'""".format(self.db_user, self.connect)  
-            
-                self.basepath_datavolumes = unix_cmd(cmd).split(",")[6].replace('"', '').replace('\n','')
-                
-                std = "/hdb/" + "H" +str(self.inst_no) + "/sapdata1"
-                if self.basepath_datavolumes == std:
-                    print("         c. Basepath_datavolumes is standard         : {}".format(self.basepath_datavolumes))
-                
-                else:
-                    print("         c. Basepath_datavolumes is not standard       : {}".format(self.basepath_datavolumes))
-                    self.set_param_to_std("basepath_datavolumes", std)
-                    print("            basepath_datavolumes set to standard     : {}".format(std))
-
-                    # print("Set basepath_datavolumes to       : {}".format(std))
-            elif '0' == output:
-                print("         c. Basepath_datavolumes                     : Not set")
-                std = "/hdb/" + "H" +str(self.inst_no) + "/sapdata1"
-                self.set_param_to_std("basepath_datavolumes", std)
-                print("            basepath_datavolumes set to standard     : {}".format(std))
-
-            else:
-                print("         c. **ERROR** Unable to get basepath_datavolumes. Check manually.")
-
-                
-        except:
-            print("         c. **ERROR** Unable to get basepath_datavolumes. Check manually.")
-
-
-        try:
-            cmd = """su - {} -c \"{} -j <<EOF
-            select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-            exit
-            EOF\" 2>/dev/null | grep -i 'Basepath_logvolumes' | wc -l """.format(self.db_user, self.connect)
-            
-            output = unix_cmd(cmd).strip()
-            if '1' == output:
-                cmd = """su - {} -c \"{} -j <<EOF
-                select * from m_inifile_contents where file_name='global.ini' and layer_name='SYSTEM' and section='persistence'
-                exit
-                EOF\" 2>/dev/null | grep -i 'Basepath_logvolumes' """.format(self.db_user, self.connect)
-                  
-                self.basepath_logvolumes = unix_cmd(cmd).split(",")[6].replace('"', '').replace('\n','')
-                
-                std = "/hdb/" + "H" +str(self.inst_no) + "/saplog1"
-                if self.basepath_logvolumes == std:
-                    print("         d. Basepath_logvolumes is standard          : {}".format(self.basepath_logvolumes))
-                
-                else:
-                    print("         d. Basepath_logvolumes is not standard      : {}".format(self.basepath_logvolumes))
-                    self.set_param_to_std("basepath_logvolumes", std)
-                    print("            basepath_logvolumes set to standard      : {}".format(std))
-
-    
-                # print("Set basepath_logvolumes to       : {}".format(std))
-            elif '0' == output:
-                std = "/hdb/" + "H" +str(self.inst_no) + "/saplog1"
-                print("         d. Basepath_logvolumes                      : Not set")
-                self.set_param_to_std("basepath_logvolumes", std)
-                print("            basepath_logvolumes set to standard      : {}".format(std))
-                
-            else:
-                print("         d. **ERROR** Unable to get basepath_logvolumes. Check manually.")
-
-        except:
-            print("         d. **ERROR** Unable to get basepath_logvolumes. Check manually.")
-        
-        
-        # password_lock_time should be 0 for system
-        
-        try:
-            cmd = """su - {} -c \"{} -j <<EOF
-            select * from m_inifile_contents where file_name='nameserver.ini' and layer_name='SYSTEM' and section='password policy'
-            exit
-            EOF\" 2>/dev/null | grep -i 'nameserver.ini' | wc -l""".format(self.db_user, self.connect)
-            
-            output = unix_cmd(cmd).strip()
-            # print(output, type(output), len(output))
-        
-
-            if '1' == output:
-                
-                cmd = """su - {} -c \"{} -j <<EOF
-                select * from m_inifile_contents where file_name='nameserver.ini' and layer_name='SYSTEM' and section='password policy'
-                exit
-                EOF\" 2>/dev/null | grep -i 'nameserver.ini'""".format(self.db_user, self.connect)
-            
-                output = unix_cmd(cmd).strip()
-                
-                self.password_lock_time = output.split(",")[6].replace('"', '').replace('\n','')
-                if self.password_lock_time == '0':
-                    print("         e. Password locktime is standard            : {}".format(self.password_lock_time))
-                else:
-                    print("         e. Password_lock_time is {}                 : Not standard".format(self.password_lock_time))
-                    self.set_param_to_std("password_lock_time", "0")
-                    print("            Changed password_lock_time to            : 0")
-            
-            else:
-                self.set_param_to_std("password_lock_time", "0")
-                print("         e. Changed password_lock_time to                : 0")
-            
-        except:
-            print("         e. **ERROR** Unabel to get password_lock_time. Check manually")
-            
-        return(self.restart_needed)
-
-
-    def create_bkpmon(self):
-
-        if self.bkpmon:
-            cmd = """su - {} -c \"{} -j '\du' \" 2>/dev/null | grep -i bkpmon """.format(self.db_user, self.connect)
-            output = unix_cmd(cmd)
-            
-            if "bkpmon" in output.lower():
-                print("     6. BKPMON user and key                            : Already Present")
-                
-        else:
-            # create user and key function
+        if key_name == "GHADMIN" and self.sys_pass:
             try:
-
-                self.bkpmon_pass = getpass.getpass(prompt="            Enter BKPMON user password               : ")
-                temp = getpass.getpass(prompt="            Enter BKPMON user password again             : ")
-                if self.bkpmon_pass == temp:
-                    
-                    cmd = """su - {} -c \"{} -j <<EOF
-                    CREATE USER BKPMON PASSWORD {} NO FORCE_FIRST_PASSWORD_CHANGE;
-                    GRANT MONITORING TO BKPMON;
-                    GRANT CATALOG READ TO BKPMON;
-                    GRANT BACKUP ADMIN TO BKPMON;
-                    GRANT DATABASE BACKUP ADMIN TO BKPMON;
-                    GRANT DATABASE RECOVERY OPERATOR to BKPMON;
-                    Alter USER BKPMON DISABLE PASSWORD LIFETIME;
-                    exit
-                    EOF \" 2>/dev/null """.format(self.db_user, self.connect, self.bkpmon_pass)
-                        
-                    unix_cmd(cmd)
-                    cmd2 = """su - {} -c \"hdbuserstore set BKPMON {}:3{}13 BKPMON {}\" 2>/dev/null """.format(self.db_user, self.hostname, self.inst_no, self.bkpmon_pass)
-                    unix_cmd(cmd2)
-                    print("         6. BKPMON user and key                      : Created and verified")
-                
-                else:
-                    print("Password did not match. Kindly enter correct password and try again.")
-                    exit(0)
-            
-            except:
-                print("**ERROR** Unable to create BKPMON user and key, kindly check manually.")
-        
-        return
-             
-
-    def create_ghur(self):
-        
-        if self.ghadmin:
-            try:
-                
-                cmd = """su - {} -c \"{} -j '\du' \" 2>/dev/null | grep -i ghur """.format(self.db_user, self.connect)
-                output = unix_cmd(cmd)
-                
-                if "ghur" in output.lower():
-                    print("     7.a GHUR user and key in systemdb                 : Already Present")
-                
-                else:
-                    print("     7.a **Error** checking ghur user status in systemdb. Kindly check manually")
-                    
-            except:
-                    print("     7.a **Error** checking ghur user status in systemdb. Kindly check manually")
-        
-        else:
-            try:
-                self.ghur_pass = getpass.getpass(prompt="            Enter GHUR user password       : ")
+                self.ghur_pass = getpass.getpass(prompt="            Enter GHUR user password           : ")
                 temp = getpass.getpass(prompt="            Enter GHUR user password again     : ")
                 
                 if self.ghur_pass == temp:
-                
-                    cmd = """su - {} -c \"{} -j <<EOF
+                    cmd = """su - {} -m -s /bin/sh -c \" hdbsql -i {} -u SYSTEM -d SYSTEMDB -p {} -j <<EOF
                     CREATE USER GHUR PASSWORD {} NO FORCE_FIRST_PASSWORD_CHANGE;
                     ALTER USER GHUR DISABLE PASSWORD LIFETIME;
                     CREATE ROLE GHBKP_ROLE;
@@ -691,9 +221,9 @@ class Hana:
                     GRANT WORKLOAD ANALYZE ADMIN TO GHSYS_ROLE;
                     GRANT WORKLOAD CAPTURE ADMIN TO GHSYS_ROLE;
                     GRANT WORKLOAD REPLAY ADMIN TO GHSYS_ROLE;
-                    GRANT EXECUTE ON "SYS"."REPOSITORY_REST" TO GHSYS_ROLE;
-                    GRANT EXECUTE ON "PUBLIC"."GRANT_ACTIVATED_ROLE" TO GHSYS_ROLE;
-                    GRANT EXECUTE ON "PUBLIC"."REVOKE_ACTIVATED_ROLE" TO GHSYS_ROLE;
+                    GRANT EXECUTE ON 'SYS'.'REPOSITORY_REST' TO GHSYS_ROLE;
+                    GRANT EXECUTE ON 'PUBLIC'.'GRANT_ACTIVATED_ROLE' TO GHSYS_ROLE;
+                    GRANT EXECUTE ON 'PUBLIC'.'REVOKE_ACTIVATED_ROLE' TO GHSYS_ROLE;
                     GRANT GHBKP_ROLE TO GHADMIN_ROLE;
                     GRANT GHMON_ROLE TO GHADMIN_ROLE;
                     GRANT GHCKP_ROLE TO GHADMIN_ROLE;
@@ -702,49 +232,38 @@ class Hana:
                     GRANT GHUSRADM_ROLE TO GHADMIN_ROLE;
                     GRANT GHADMIN_ROLE TO GHUR;
                     exit
-                    EOF \" 2>/dev/null """.format(self.db_user, self.connect, self.ghur_pass)
+                    EOF\" 2>/dev/null """.format(self.db_user,self.inst_no, self.sys_pass, self.ghur_pass)
                     
                     unix_cmd(cmd)
-                
                     cmd2 = """su - {} -c \"hdbuserstore set GHADMIN {}:3{}13 GHUR {}\" 2>/dev/null""".format(self.db_user, self.hostname, self.inst_no, self.ghur_pass)
-                
                     unix_cmd(cmd2)
-                
                     self.ghadmin = check_key_connectivity(self.db_user, "GHADMIN")
-                    if self.ghadmin:
-                        print("     7.a GHUR user and key in SYSTEM db              : Created & verified")
-                    else:
-                        print("     7.a **ERROR** Creation of GHUR user in systemdb failed. Check manually.")
-                                
+                    if not self.ghadmin:
+                        exit(0)
                 else:
-                    print("**ERROR** Password did not match. Kindly enter correct password and try again.")
+                    flag = 1
                     exit(0)
-            except:
-                print("     7.a **ERROR** Creation of GHUR user in systemdb failed. Check manually.")
-        
-        
-        
-        if self.ghtadmin:
-            try:
-                cmd = """su - {} -c \"{} -j '\du' \" 2>/dev/null | grep -i ghur """.format(self.db_user, "hdbsql -U GHTADMIN")
-                output = unix_cmd(cmd)
-                if "ghur" in output.lower():
-                    print("     7.b GHUR user and key in tenant db                : Already Present")
-                else:
-                    print("     7.b **ERROR** checking ghur user status in tenant db. Kindly check manually")
                     
             except:
-                    print("     7.b **ERROR** checking ghur user status in tenant db. Kindly check manually")
+                if flag:
+                    print(color.red, "**ERROR** Password did not match. Kindly enter correct password and try again.", color.end)
+                else:    
+                    print(color.red, "**ERROR** creating ghur user and key in systemdb.", color.end)
+                exit(0)
         
-        else:
-            try:
-                if not self.ghur_pass:
-                    self.ghur_pass = getpass.getpass(prompt="Enter GHUR user password       : ")
-                    temp = getpass.getpass(prompt="Enter GHUR user password again     : ")
+        elif key_name == "GHTADMIN" and self.sys_pass:
+            if not self.ghur_pass:
+                self.ghur_pass = getpass.getpass(prompt="            Enter GHUR user password           : ")
+                temp = getpass.getpass(prompt="            Enter GHUR user password again     : ")
+                if self.ghur_pass == temp:
+                    pass
                 else:
-                    if self.ghur_pass == temp:
-                        self.get_system_pass()
-                        cmd = """su - {} -c \"hdbsql -i {} -u SYSTEM -d {} -p {} -j <<EOF
+                    print(color.red, "**ERROR** Password did not match. Kindly enter correct password and try again.", color.end)
+                    exit(0)
+                    
+            if self.ghur_pass:
+                try:
+                    cmd = """su - {} -m -s /bin/sh -c \" hdbsql -i {} -u SYSTEM -d {} -p {} -j <<EOF
                             CREATE USER GHUR PASSWORD {} NO FORCE_FIRST_PASSWORD_CHANGE;
                             ALTER USER GHUR DISABLE PASSWORD LIFETIME;
                             
@@ -836,9 +355,9 @@ class Hana:
                             GRANT WORKLOAD ANALYZE ADMIN TO GHSYS_ROLE;
                             GRANT WORKLOAD CAPTURE ADMIN TO GHSYS_ROLE;
                             GRANT WORKLOAD REPLAY ADMIN TO GHSYS_ROLE;
-                            GRANT EXECUTE ON "SYS"."REPOSITORY_REST" TO GHSYS_ROLE;
-                            GRANT EXECUTE ON "PUBLIC"."GRANT_ACTIVATED_ROLE" TO GHSYS_ROLE;
-                            GRANT EXECUTE ON "PUBLIC"."REVOKE_ACTIVATED_ROLE" TO GHSYS_ROLE;
+                            GRANT EXECUTE ON 'SYS'.'REPOSITORY_REST' TO GHSYS_ROLE;
+                            GRANT EXECUTE ON 'PUBLIC'.'GRANT_ACTIVATED_ROLE' TO GHSYS_ROLE;
+                            GRANT EXECUTE ON 'PUBLIC'.'REVOKE_ACTIVATED_ROLE' TO GHSYS_ROLE;
                             
                             GRANT GHBKP_ROLE TO GHADMIN_ROLE;
                             GRANT GHMON_ROLE TO GHADMIN_ROLE;
@@ -849,116 +368,123 @@ class Hana:
                             
                             GRANT GHADMIN_ROLE TO GHUR;
                             exit
-                            EOF \" 2>/dev/null """.format(self.db_user, self.inst_no, self.sid, self.sys_pass, self.ghur_pass)
-                        
-                        unix_cmd(cmd)
-                        cmd2 = """su - {} -c \"hdbuserstore set GHTADMIN {}:3{}15 GHUR {}\" 2>/dev/null """.format(self.db_user, self.hostname, self.inst_no, self.ghur_pass)
-                        unix_cmd(cmd2)
-                        self.ghtadmin = check_key_connectivity(self.db_user, "GHTADMIN")
+                            EOF\" 2>/dev/null """.format(self.db_user, self.inst_no, self.sid, self.sys_pass, self.ghur_pass)
                     
-                        if self.ghtadmin:
-                            print("     7.b GHUR user and key for Tenant db               : Created & Verified")
-                        else:
-                            print("     7.b **ERROR** Creation of GHUR user in tenant db failed. Check manually.")
-                            
-                    else:
-                        print("**ERROR** Password did not match. Kindly enter correct password and try again.")
+                    unix_cmd(cmd)
+                    cmd2 = """su - {} -c \"hdbuserstore set GHTADMIN {}:3{}15 GHUR {}\" 2>/dev/null""".format(self.db_user, self.hostname, self.inst_no, self.ghur_pass)
+                    unix_cmd(cmd2)
+                    self.ghtadmin = check_key_connectivity(self.db_user, "GHTADMIN")
+                    if not self.ghtadmin:
                         exit(0)
                     
+                except:
+                    print(color.red, "**ERROR** Creation of GHUR user in TENANT failed. Check manually.", color.end)
+                    exit(0)
+
+    def create_bkpmon(self):
+        try:
+            self.bkpmon_pass = getpass.getpass(prompt="            Enter BKPMON user password         : ")
+            temp = getpass.getpass(prompt="            Enter BKPMON user password again   : ")
+            if self.bkpmon_pass == temp:
+                cmd = """su - {} -c \"{} -j <<EOF
+                CREATE USER BKPMON PASSWORD {} NO FORCE_FIRST_PASSWORD_CHANGE;
+                GRANT MONITORING TO BKPMON;
+                GRANT CATALOG READ TO BKPMON;
+                GRANT BACKUP ADMIN TO BKPMON;
+                GRANT DATABASE BACKUP ADMIN TO BKPMON;
+                GRANT DATABASE RECOVERY OPERATOR to BKPMON;
+                Alter USER BKPMON DISABLE PASSWORD LIFETIME;
+                exit
+                EOF\" 2>/dev/null """.format(self.db_user, self.connect, self.bkpmon_pass)
                     
-            except:
-                print("     7.b **ERROR** checking ghur user status in tenant db. Kindly check manually")
-
-            return
-
-
-    def disable_password(self):
-        try:
-            if self.ghadmin:
-                cmd = """su - {} -c \" hdbsql -U GHADMIN -j <<EOF
-                alter user bkpmon disable password lifetime;
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user)
-            
-                unix_cmd(cmd)
-                print("     8. Disable password lifetime of technical users   : Successful")
+                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd2 = """su - {} -c \"hdbuserstore set BKPMON {}:3{}13 BKPMON {}\" 2>/dev/null """.format(self.db_user, self.hostname, self.inst_no, self.bkpmon_pass)
+                subprocess.run(cmd2, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.bkpmon = check_key_connectivity(self.db_user, "BKPMON")
+                if not self.bkpmon:
+                    exit(0)
+            else:
+                flag = 1
+                exit(0)
         except:
-            print("     8. **ERROE** Failed to disable password lifetime. Check manually.")
-        return
-        
-            
-    def lock_system_users(self):
-        if self.ghadmin:
-            try:
-                cmd = """su - {} -c \" hdbsql -U GHADMIN -j <<EOF
-                alter user system deactivate user now
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user)
-                
-                unix_cmd(cmd)
-                print("     9.a System user in systemdb                       : Locked")
-            
-            except:
-                print("     9.a **ERROR** Unable to lock system user for systemdb. Check manually")
-        
-        if self.ghtadmin:
-            try:
-                cmd = """su - {} -c \" hdbsql -U GHTADMIN -j <<EOF
-                alter user system deactivate user now
-                exit
-                EOF\" 2>/dev/null """.format(self.db_user)
-            
-                unix_cmd(cmd)
-                print("     9.b System user in tenantdb                       : Locked")
-            except:
-                print("     9.b Unable to lock system user for systemdb. Check manually")
-        
-        return
-        
-    
-    def default_key(self):
-        
-        user = "SAP" + self.sid
-        users = ["SAPHANADB", user]
-        
-        flag = 0
-        
+            if flag:
+                print(color.red, "Password did not match. Kindly enter correct password and try again.", color.end)
+            else:
+                print(color.red, "**ERROR** Unable to create BKPMON user and key, kindly check manually.", color.end)
+            exit(0)
+
+    def check_keys(self):
         try:
-            cmd = """su - {} -c \"hdbsql -U GHTADMIN -j '\\du' \" 2>/dev/null """.format(self.db_user, user)
+            cmd = """su - {} -c \"hdbuserstore list\" 2>/dev/null | grep -i key | grep -iv file """.format(self.db_user)
+            output = unix_cmd(cmd)
+    
+            if "ghadmin" in output.lower():
+                self.ghadmin = check_key_connectivity(self.db_user, "GHADMIN")
+                print("     2. GHUR & GHADMIN availability                     : ", color.green, self.ghadmin, color.end)
+            else:
+                self.ghadmin = False
+                self.create_ghur("GHADMIN")
+                print("     2. GHUR & GHADMIN created for systemdb             : ", color.green, self.ghadmin, color.end)                
+                
+            self.connect = 'hdbsql -U GHADMIN'
+
+            if "ghtadmin" in output.lower():
+                self.ghtadmin = check_key_connectivity(self.db_user, "GHTADMIN")
+                print("        GHUR & GHTADMIN availability                    : ", color.green, self.ghtadmin, color.end)
+            else:
+                self.ghtadmin = False
+                self.create_ghur("GHTADMIN")
+                print("        GHUR & GHTADMIN created for tenantdb            : ", color.green, self.ghtadmin, color.end)
+
+
+            if "bkpmon" in output.lower():
+                self.bkpmon = check_key_connectivity(self.db_user, "BKPMON")
+                print("     3. BKPMON availability                             : ", color.green, self.bkpmon, color.end)
+
+            else:
+                self.bkpmon = False
+                self.create_bkpmon()
+                print("     3. BKPMON user & key created                       : ", color.green, self.bkpmon, color.end)
+
+        except:
+            self.bkpmon = False
+            self.ghadmin = False
+            self.ghtadmin = False
+            print(color.red, "ERROR finding BKPMON, GHADMIN, GHTADMIN keys status.", color.end)
+            exit(0)
+
+    def default_key(self):
+        users = ["SAPHANADB", "SAP"+self.sid]
+        flag = 0
+        try:
+            cmd = """su - {} -c \"hdbsql -U GHTADMIN -j '\\du' \" 2>/dev/null """.format(self.db_user, users[1])
             output = unix_cmd(cmd)
             for each in users:
                 if each in output:
                     self.schema_user = each
                     flag = 1
                     break
-                    # print(user)
+                    print(user)
             if flag == 0:
-                print("     10. DB-App connectivity (DEFAULT key)             : {} Not found".format(users))
-
+                print("     4. DB-App connectivity (DEFAULT key)               : {} Not found".format(color.red+users+color.end))
         except:
-            print("     10. **ERROR** finding schema user. Check manually.")
-        
+            print(color.red, "    4. **ERROR** finding schema user. Check manually.", color.end)
+
         if flag:
             try:
                 cmd = """su - {} -c \"hdbuserstore list\" 2>/dev/null """.format(self.app_user)
                 output = unix_cmd(cmd)
                 if "DEFAULT" in output:
-                    # print("DEFAULT")
                     if self.schema_user.lower() in output.lower():
-                        
-                        print("     10. Schema user & DEFAULT key                     : {}".format(self.schema_user))
-                        
                         con = check_key_connectivity(self.app_user, "DEFAULT")
                         if con:
-                            print("      Connection using default key is working fine")
+                            print("     4. DEFAULT key connection                          : ",color.green, "True", color.end)
                         else:
-                            print("      DEFAULT key connection is not working.")
+                            print(color.red,"     4. DEFAULT key connection is not working.",color.end)
                     else:
                         print("      DEFAULT key not created properly.")
-
                 else:
-                    print("     10. DEFAULT key not present")
-                    
+                    print("     4. DEFAULT key not present")
                     try:
                         self.schema_pass = getpass.getpass(prompt="Enter SCHEMA user password       : ")
                         temp = getpass.getpass(prompt="Enter SCHEMA user password again     : ")
@@ -977,57 +503,145 @@ class Hana:
                             exit(0)
                     except:
                         print("       Error creating DEFAULT key.")
-                    
             except:
                 print("       DEFAULT key not present.")
+
+    def check_permanent_license(self):
+        try:
+            cmd = '''su - {} -c " hdbsql -aU GHADMIN -j \\"select permanent from m_license\\""'''.format(self.db_user)
+            output = unix_cmd(cmd)
+            if "true" in output.lower(): 
+                print("     5. Permanent license                               : ", color.green, "Present", color.end)
+            elif "false" in output.lower():
+                print("     5. Permanent license                               : ", color.red, "Not present. Kindly install", color.end)
+        except:
+            print("         5. Permanent license                               : ", color.red, "Unable to get permanent license status", color.end)
+
+    def check_fulldb_backup(self):
+        try:
+            cmd = """su - {} -c \" {} -j 'select TOP 1 ENTRY_TYPE_NAME,SYS_END_TIME from M_BACKUP_CATALOG'\" | grep -i 'complete data backup' """.format(self.db_user, self.connect)
+            output = unix_cmd(cmd).strip()
+            print("     6. Full DB backup                                  : ", color.green, output, color.end)
+        except:
+            print("     6. Full DB backup                                  : ", color.bold, "No intial database backup found: Please check", color.end)
+
+    def get_param_values(self):
+        if "ccwdf" in self.hostname or "gcl" in self.hostname:
+            temp = [
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_logbackup', '/dbarchive'],
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_catalogbackup', '/dbarchive']]
         else:
-            pass
+            temp = [
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_logbackup', '/dbarchive/h{}'.format(self.inst_no)],
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_catalogbackup', '/dbarchive/h{}'.format(self.inst_no)]]
+
+        std_data = "/hdb/" + "H" +str(self.inst_no) + "/sapdata1"
+        std_log = "/hdb/" + "H" +str(self.inst_no) + "/saplog1"
         
+        temp2 = [
+            ['global.ini', 'SYSTEM', 'persistence', 'basepath_datavolumes', std_data],
+            ['global.ini', 'SYSTEM', 'persistence', 'basepath_logvolumes', std_log],
+            ['nameserver.ini', 'SYSTEM', 'password policy', 'password_lock_time', '0']]
         
-        return
+        self.std_param = temp + temp2
 
-hana = Hana()
-hana.get_instance_no()
+    def change_param_val(self, p, val):
+        try:
+            cmd = '''su - {} -c "{} -j \\"ALTER SYSTEM ALTER CONFIGURATION ('{}', '{}') SET ('{}', '{}') = '{}'\\"" 2>/dev/null '''.format(self.db_user, self.connect, p[0], p[1], p[2], p[3], p[4])
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if val:
+                print("            ", p[3] ,color.red, val, color.end, "set to standard  : ", color.green + p[4] + color.end)
+            else:
+                print("            ", p[3], "set to standard  : ", color.green + p[4] + color.end)
+        except:
+            print(color.red,"            ERROR failed to set {} parameter, check manually.".format(p[3]) + color.end)
+    
+    def check_dblevel_params(self):
+        print(color.bold,"    9. DB level parameters ", color.end)
+        for p in self.std_param:
+            cmd = '''su - {} -c "{} -j \\"select key,value from m_inifile_contents where file_name='{}' and layer_name='{}' and section='{}' and key='{}'\\"" 2>/dev/null | grep -i {} | wc -l'''.format(self.db_user, self.connect, p[0], p[1], p[2], p[3], p[3])
+            output = unix_cmd(cmd).strip()
+            if not (output == '0'):
+                cmd = '''su - {} -c "{} -j \\"select key,value from m_inifile_contents where file_name='{}' and layer_name='{}' and section='{}' and key='{}'\\"" 2>/dev/null | grep -i {} '''.format(self.db_user, self.connect, p[0], p[1], p[2], p[3], p[3])
+                output = unix_cmd(cmd).strip()
+                val = output.split(',')[1].strip('"')
+                if val == p[4]:
+                    print("            ", p[3], "is standard               : ", color.green + val + color.end)
+                else:
+                    self.change_param_val(p, val)
+            else:
+                self.change_param_val(p, None)
+                
+    def disable_password(self):
+        try:
+            if self.ghadmin:
+                cmd = """su - {} -c \" hdbsql -U GHADMIN -j <<EOF
+                alter user bkpmon disable password lifetime;
+                exit
+                EOF\" 2>/dev/null """.format(self.db_user)
+                unix_cmd(cmd)
+                
+            if self.schema_user:
+                cmd = """su - {} -c \" hdbsql -U GHTADMIN -j <<EOF
+                alter user {} disable password lifetime;
+                exit
+                EOF\" 2>/dev/null """.format(self.db_user, self.schema_user)
+                unix_cmd(cmd)
+            print("     7. Disable password lifetime of technical users    : ", color.green, "Successful", color.end)
+        except:
+            print(color.red,"     7. **ERROE** Failed to disable password lifetime. Check manually.", color.end)
+    
+    def lock_system_users(self):
+        if self.ghadmin:
+            try:
+                cmd = """su - {} -c \" hdbsql -U GHADMIN -j <<EOF
+                alter user system deactivate user now
+                exit
+                EOF\" 2>/dev/null """.format(self.db_user)
+                
+                unix_cmd(cmd)
+                print("     8. System user in systemdb                         : ", color.green, "Locked", color.end)
+            
+            except:
+                print(color.red, "     8. **ERROR** Unable to lock system user for systemdb. Check manually", color.end)
+        
+        if self.ghtadmin:
+            try:
+                cmd = """su - {} -c \" hdbsql -U GHTADMIN -j <<EOF
+                alter user system deactivate user now
+                exit
+                EOF\" 2>/dev/null """.format(self.db_user)
+            
+                unix_cmd(cmd)
+                print("        System user in tenantdb                         : ", color.green, "Locked", color.end)
+            except:
+                print(color.red,"        Unable to lock system user for tenantdb. Check manually", color.end)
 
+    
+def main():
+        
+    hana = Hana()
+    temp = hana.check_db_type()
+    if temp:
+        hana.get_sys_details()
+        temp = hana.get_db_status()
+        if temp:
+            print("     3. DB status                : ", color.green, "Up", color.end)
+        else:
+            print(color.red, " **ERROR**   :    DB services are not running.\n Quiting", color.end)
+        print(color.bold, "\nPost installation checks : ", color.end)
+        hana.get_version()
+        hana.check_keys()
+        hana.default_key()
+        hana.check_permanent_license()
+        hana.check_fulldb_backup()
+        hana.disable_password()
+        hana.lock_system_users()
+        hana.get_param_values()
+        hana.check_dblevel_params()
+        
+    else:
+        exit(0)
 
-# step 2  get status of DB
-status =  hana.get_db_status()
-
-hana.get_sid()
-
-print("\nPost installation checks : ")
-
-# step 1  Display DB version
-hana.get_version()
-
-#step 2 db status output
-if status:
-    print("     2. DB Status                                      : Up")
-
-
-# check keys
-hana.check_keys()
-
-hana.user_or_key()
-
-hana.get_system_pass()
-hana.check_permanent_license()
-
-hana.check_fulldb_backup()
-
-restart = hana.check_dblevel_params()
-
-hana.create_bkpmon()
-
-hana.create_ghur()
-
-hana.disable_password()
-
-hana.lock_system_users()
-
-hana.default_key()
-
-print("     11. Verify the SISM entry for database configuration.\n")
-
-if restart:
-    print("*****NOTE : DB parameters are modified hence take a DB restart to reflect the changes.*****")
+if __name__ == '__main__':
+    main()
