@@ -532,8 +532,8 @@ class Hana:
                 ['global.ini', 'SYSTEM', 'persistence', 'basepath_catalogbackup', '/dbarchive']]
         else:
             temp = [
-                ['global.ini', 'SYSTEM', 'persistence', 'basepath_logbackup', '/dbarchive/h{}'.format(self.inst_no)],
-                ['global.ini', 'SYSTEM', 'persistence', 'basepath_catalogbackup', '/dbarchive/h{}'.format(self.inst_no)]]
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_logbackup', '/dbarchive/H{}'.format(self.inst_no)],
+                ['global.ini', 'SYSTEM', 'persistence', 'basepath_catalogbackup', '/dbarchive/H{}'.format(self.inst_no)]]
 
         std_data = "/hdb/" + "H" +str(self.inst_no) + "/sapdata1"
         std_log = "/hdb/" + "H" +str(self.inst_no) + "/saplog1"
