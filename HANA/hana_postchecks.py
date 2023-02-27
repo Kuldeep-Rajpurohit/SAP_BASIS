@@ -4,7 +4,7 @@
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 7th Nov 2022                ###
+###       Last updated  : 6th Dec 2022                ###
 ###       Title         : Hana Post Installation      ###
 #########################################################
 
@@ -20,7 +20,6 @@ import subprocess
 import getpass
 
 
-
 class color:
     red = '\033[91m'
     green = '\033[92m'
@@ -32,8 +31,11 @@ print("System Information : ")
 
 
 def unix_cmd(cmd):
-    output = subprocess.check_output(cmd, shell=True)
+    temp = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, err = temp.communicate()
+    returncode = temp.returncode
     return(output.decode())
+
 
 def check_key_connectivity(user, key):
     try:
@@ -56,19 +58,18 @@ class Hana:
             cmd = """cat /etc/fstab | grep -i sapdata1 | awk '{print $2}' """
             output = unix_cmd(cmd).strip()
             self.temp_data = output
-            
             # db type is hana
             if 'hdb' in output:
                 self.is_hana = True
             # db type is not hana
             else:
                 self.is_hana = False
-                
         except:
             # not a hana system or not standard fs
             self.is_hana = False
         return(self.is_hana)
 
+    
     def get_sys_details(self):
         try:
             temp = self.temp_data.split('/')[2].lower()
@@ -87,11 +88,11 @@ class Hana:
             print("     2. SID                      :   {}".format(self.sid))
             # print("      App user                 : {}".format(self.app_user))
             return
-
         except:
             print(color.red, "Unable to get system details.", color.end)
             exit(0)  
 
+            
     def get_db_status(self):
         try:
             cmd = """su - {} -c \"sapcontrol -nr {} -function GetProcessList\" 2>/dev/null | grep -i hdb """.format(self.db_user, self.inst_no)
@@ -105,6 +106,7 @@ class Hana:
             print(color.red, " **ERROR**   :    DB services are not running.", color.end)
             exit(0)
 
+            
     def get_version(self):
         try:
             cmd = """ su - {} -c \"HDB version\" 2>/dev/null | grep -i version | tail -1 """.format(self.db_user, self.inst_no)
@@ -114,6 +116,7 @@ class Hana:
         except:
             print(color.red, "     1. Unable to get DB version.", color.end)
 
+            
     def create_ghur(self, key_name):
         if self.sys_pass:
             pass
@@ -180,9 +183,9 @@ class Hana:
                     GRANT AUDIT READ TO GHSYS_ROLE;
                     GRANT SSL ADMIN TO GHSYS_ROLE;
                     GRANT CREATE SCHEMA TO GHSYS_ROLE;
-                    GRANT BACKUP ADMIN TO GHSYS_ROLE;
+                    GRANT BACKUP ADMIN TO GHSYS_ROLE WITH ADMIN OPTION;
                     GRANT BACKUP OPERATOR TO GHSYS_ROLE WITH ADMIN OPTION;
-                    GRANT CATALOG READ TO GHSYS_ROLE;
+                    GRANT CATALOG READ TO GHSYS_ROLE WITH ADMIN OPTION;
                     GRANT CERTIFICATE ADMIN TO GHSYS_ROLE;
                     GRANT CREATE REMOTE SOURCE TO GHSYS_ROLE;
                     GRANT CREATE STRUCTURED PRIVILEGE TO GHSYS_ROLE;
@@ -190,9 +193,9 @@ class Hana:
                     GRANT DATA ADMIN TO GHSYS_ROLE;
                     GRANT DATABASE ADMIN TO GHSYS_ROLE WITH ADMIN OPTION;
                     GRANT DATABASE AUDIT ADMIN TO GHSYS_ROLE;
-                    GRANT DATABASE BACKUP ADMIN TO GHSYS_ROLE;
+                    GRANT DATABASE BACKUP ADMIN TO GHSYS_ROLE WITH ADMIN OPTION;
                     GRANT DATABASE BACKUP OPERATOR TO GHSYS_ROLE;
-                    GRANT DATABASE RECOVERY OPERATOR TO GHSYS_ROLE;
+                    GRANT DATABASE RECOVERY OPERATOR TO GHSYS_ROLE WITH ADMIN OPTION;
                     GRANT DATABASE START TO GHSYS_ROLE;
                     GRANT DATABASE STOP TO GHSYS_ROLE;
                     GRANT EXPORT, IMPORT TO GHSYS_ROLE;
@@ -376,10 +379,10 @@ class Hana:
                     self.ghtadmin = check_key_connectivity(self.db_user, "GHTADMIN")
                     if not self.ghtadmin:
                         exit(0)
-                    
                 except:
                     print(color.red, "**ERROR** Creation of GHUR user in TENANT failed. Check manually.", color.end)
                     exit(0)
+
 
     def create_bkpmon(self):
         try:
@@ -413,6 +416,7 @@ class Hana:
                 print(color.red, "**ERROR** Unable to create BKPMON user and key, kindly check manually.", color.end)
             exit(0)
 
+
     def check_keys(self):
         try:
             cmd = """su - {} -c \"hdbuserstore list\" 2>/dev/null | grep -i key | grep -iv file """.format(self.db_user)
@@ -436,11 +440,9 @@ class Hana:
                 self.create_ghur("GHTADMIN")
                 print("        GHUR & GHTADMIN created for tenantdb            : ", color.green, self.ghtadmin, color.end)
 
-
             if "bkpmon" in output.lower():
                 self.bkpmon = check_key_connectivity(self.db_user, "BKPMON")
                 print("     3. BKPMON availability                             : ", color.green, self.bkpmon, color.end)
-
             else:
                 self.bkpmon = False
                 self.create_bkpmon()
@@ -452,6 +454,7 @@ class Hana:
             self.ghtadmin = False
             print(color.red, "ERROR finding BKPMON, GHADMIN, GHTADMIN keys status.", color.end)
             exit(0)
+
 
     def default_key(self):
         users = ["SAPHANADB", "SAP"+self.sid]
@@ -490,7 +493,6 @@ class Hana:
                         temp = getpass.getpass(prompt="Enter SCHEMA user password again     : ")
                         
                         if self.schema_pass == temp:
-                            
                             cmd = """su - {} -c \"hdbuserstore set DEFAULT {}:3{}15 {} {}\" 2>/dev/null """.format(self.app_user, self.hostname, self.inst_no, self.schema_user, self.schema_pass)
                             unix_cmd(cmd)
                             temp2 = check_key_connectivity("DEFAULT")
@@ -506,6 +508,7 @@ class Hana:
             except:
                 print("       DEFAULT key not present.")
 
+                
     def check_permanent_license(self):
         try:
             cmd = '''su - {} -c " hdbsql -aU GHADMIN -j \\"select permanent from m_license\\""'''.format(self.db_user)
@@ -517,6 +520,7 @@ class Hana:
         except:
             print("         5. Permanent license                               : ", color.red, "Unable to get permanent license status", color.end)
 
+            
     def check_fulldb_backup(self):
         try:
             cmd = """su - {} -c \" {} -j 'select TOP 1 ENTRY_TYPE_NAME,SYS_END_TIME from M_BACKUP_CATALOG'\" | grep -i 'complete data backup' """.format(self.db_user, self.connect)
@@ -524,6 +528,7 @@ class Hana:
             print("     6. Full DB backup                                  : ", color.green, output, color.end)
         except:
             print("     6. Full DB backup                                  : ", color.bold, "No intial database backup found: Please check", color.end)
+
 
     def get_param_values(self):
         if "ccwdf" in self.hostname or "gcl" in self.hostname:
@@ -545,6 +550,7 @@ class Hana:
         
         self.std_param = temp + temp2
 
+        
     def change_param_val(self, p, val):
         try:
             cmd = '''su - {} -c "{} -j \\"ALTER SYSTEM ALTER CONFIGURATION ('{}', '{}') SET ('{}', '{}') = '{}'\\"" 2>/dev/null '''.format(self.db_user, self.connect, p[0], p[1], p[2], p[3], p[4])
@@ -555,7 +561,8 @@ class Hana:
                 print("            ", p[3], "set to standard  : ", color.green + p[4] + color.end)
         except:
             print(color.red,"            ERROR failed to set {} parameter, check manually.".format(p[3]) + color.end)
-    
+
+
     def check_dblevel_params(self):
         print(color.bold,"    9. DB level parameters ", color.end)
         for p in self.std_param:
@@ -571,7 +578,8 @@ class Hana:
                     self.change_param_val(p, val)
             else:
                 self.change_param_val(p, None)
-                
+
+
     def disable_password(self):
         try:
             if self.ghadmin:
@@ -590,7 +598,8 @@ class Hana:
             print("     7. Disable password lifetime of technical users    : ", color.green, "Successful", color.end)
         except:
             print(color.red,"     7. **ERROE** Failed to disable password lifetime. Check manually.", color.end)
-    
+
+
     def lock_system_users(self):
         if self.ghadmin:
             try:
@@ -598,10 +607,8 @@ class Hana:
                 alter user system deactivate user now
                 exit
                 EOF\" 2>/dev/null """.format(self.db_user)
-                
                 unix_cmd(cmd)
                 print("     8. System user in systemdb                         : ", color.green, "Locked", color.end)
-            
             except:
                 print(color.red, "     8. **ERROR** Unable to lock system user for systemdb. Check manually", color.end)
         
@@ -611,7 +618,6 @@ class Hana:
                 alter user system deactivate user now
                 exit
                 EOF\" 2>/dev/null """.format(self.db_user)
-            
                 unix_cmd(cmd)
                 print("        System user in tenantdb                         : ", color.green, "Locked", color.end)
             except:
