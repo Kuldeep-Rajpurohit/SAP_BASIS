@@ -4,7 +4,7 @@
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 6th Dec 2022                ###
+###       Last updated  : 21th Dec 2022                ###
 ###       Title         : Hana Post Installation      ###
 #########################################################
 
@@ -83,6 +83,8 @@ class Hana:
             self.app_user = self.sid.lower()+"adm"
             self.sys_pass = None
             self.schema_user = None
+            # track if parameter change was successful, and proceed with file change only if it's true
+            self.ssl_flag = True
             print("     1. Instance number          :   {}".format(self.inst_no))
             # print("      DB user                  : {}".format(self.db_user))
             print("     2. SID                      :   {}".format(self.sid))
@@ -497,14 +499,14 @@ class Hana:
                             unix_cmd(cmd)
                             temp2 = check_key_connectivity("DEFAULT")
                             if temp2:
-                                print("       Default key created successfully.")
+                                print(color.green, "       Default key created successfully.", color.end)
                             else:
-                                print("       Default key created, connection not working, check manually.")
+                                print(color.red, "       Default key created, connection not working, check manually.", color.end)
                         else:
-                            print("       Password mismatch, enter correct password and try again.")
+                            print(color.red, "       Password mismatch, enter correct password and try again.", color.end)
                             exit(0)
                     except:
-                        print("       Error creating DEFAULT key.")
+                        print(color.red,"       Error creating DEFAULT key.", color.end)
             except:
                 print("       DEFAULT key not present.")
 
@@ -561,11 +563,12 @@ class Hana:
                 print("            ", p[3], "set to standard  : ", color.green + p[4] + color.end)
         except:
             print(color.red,"            ERROR failed to set {} parameter, check manually.".format(p[3]) + color.end)
+            if p in self.tls_params:
+                self.ssl_flag = False
 
 
-    def check_dblevel_params(self):
-        print(color.bold,"    9. DB level parameters ", color.end)
-        for p in self.std_param:
+    def check_dblevel_params(self, param_list):
+        for p in param_list:
             cmd = '''su - {} -c "{} -j \\"select key,value from m_inifile_contents where file_name='{}' and layer_name='{}' and section='{}' and key='{}'\\"" 2>/dev/null | grep -i {} | wc -l'''.format(self.db_user, self.connect, p[0], p[1], p[2], p[3], p[3])
             output = unix_cmd(cmd).strip()
             if not (output == '0'):
@@ -623,6 +626,71 @@ class Hana:
             except:
                 print(color.red,"        Unable to lock system user for tenantdb. Check manually", color.end)
 
+
+    def set_tls_param(self):
+
+        self.tls_params = [['global.ini', 'SYSTEM', 'communication', 'sslminprotocolversion', 'TLS12'],
+        ['global.ini', 'SYSTEM', 'communication', 'tcp_backlog', '2048'],
+        ['global.ini', 'SYSTEM', 'communication', 'ssl', 'systempki'],
+        ['global.ini', 'SYSTEM', 'ldap', 'sslminprotocolversion', 'TLS12']]
+        
+        self.check_dblevel_params(self.tls_params)
+        if not self.ssl_flag:
+            return(False)
+        return(True)
+
+
+    def modify_files(self):
+        files = ["/usr/sap/hostctrl/exe/host_profile", "/usr/sap/H10/SYS/profile/DEFAULT.PFL"]
+        ssl_values = {"ssl/ciphersuites" : "545:PFS:HIGH::EC_P256:EC_HIGH",
+            "ssl/client_ciphersuites" : "560:PFS:HIGH::EC_P256:EC_HIGH"}
+        restart_flag = False
+
+        for file in files:
+            file_change = False
+            # Track if ssl parameters are found in file, by default false (not found)
+            ssl_values_found = {"ssl/ciphersuites" : False,
+                    "ssl/client_ciphersuites" : False}
+            new_text = []
+
+            try:
+                with open(file, mode="r+") as f:
+                    for line in f:
+                        if "ssl" in line:
+                            param_name, value = line.split("=")[0].strip(), line.split("=")[1].strip()
+                            # print(param_name, len(param_name))
+                            if param_name in ssl_values.keys():
+                                # parameter is found hence marking it as True
+                                ssl_values_found[param_name] = True
+                                if value == ssl_values[param_name]:
+                                    new_text.append(line)
+                                else:
+                                    new_text.append("\n# "+line)
+                                    new_text.append("\n" + str(param_name) + " = " + str(ssl_values[param_name])+"\n")
+                                    file_change = True
+                            else:
+                                new_text.append(line)
+                        else:
+                            new_text.append(line)
+                    for key, value in ssl_values_found.items():
+                        if not value:
+                            new_text.append("\n" + str(key) + " = " + str(ssl_values[key])+"\n")
+                            file_change = True
+                if file_change:
+                    with open(file, mode="w") as f:
+                        f.writelines(new_text)
+                        restart_flag = True
+                        print(file, color.green, " : Updated", color.end)
+
+                # all values are as per standard and no changes are needed hence skipping
+                else:
+                    print("            {} : ".format(file), color.bold, color.green, "already standard", color.end)
+            except FileNotFoundError as e:
+                print(color.red + str(file) + " not found " + color.end)
+            except:
+                print(color.red, "            Error checking {} file".format(file), color.end)
+        return(restart_flag)
+
     
 def main():
         
@@ -644,7 +712,18 @@ def main():
         hana.disable_password()
         hana.lock_system_users()
         hana.get_param_values()
-        hana.check_dblevel_params()
+        print(color.bold,"    9. DB level parameters ", color.end)
+        hana.check_dblevel_params(hana.std_param)
+        print(color.bold,"    10. SSL parameters     ", color.end)
+        # ask if ssl and TLS 1.2 enabling is needed
+        ssl = input("         Do you want to enable SSL, TLS parameters"+ color.red+ "[no for DBS Lamdscape]"+ color.end+ "[y/n] : ")
+        if ssl == 'y':
+            if hana.set_tls_param():
+                print(color.bold, "         Files", color.end)
+                restart_needed = hana.modify_files()
+                if restart_needed:
+                    print(color.bold, "            SSL Parameters are changed, kindly restart the system.", color.end)
+
         
     else:
         exit(0)
