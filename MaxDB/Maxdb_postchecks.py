@@ -1,5 +1,6 @@
 #!/usr/bin/env python3.8
 
+
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
@@ -53,7 +54,7 @@ class Maxdb:
         self.schema_pass = None
         self.schema_user = None
 
-        
+
     def check_db_type(self):
         try:
             cmd = """cat /etc/fstab """
@@ -80,30 +81,14 @@ class Maxdb:
                 cmd = """su - {} -c \"dbmcli -U c -uSQL {},{} db_state \" """.format(self.db_user, user, password)
             rc, output = unix_cmd(cmd)
             if rc == 0:
-                print(color.green, "Connection using {} user is working fine.".format(user), color.end)
-                return(True)
+                return(True, color.green + "OK" + color.end)
             else:
                 if "User authorization failed" or "Unknown user name/password combination" in output:
-                    # print(color.red,"Incorrect password provided for {} user".format(user), color.end)
-                    return(False)
+                    return(False, color.red + "Incorrect password" + color.end)
                 else:
-                    print(color.red, "Error checking {} user connection".format(user), color.end)
-                    return(False)
+                    return(False, color.red+ "Error"+ color.end)
         except:
-            # print("Error checking user connection")
-            return(False)
-
-
-    def get_schema_user(self):
-        cmd = """su - {} -c \"sqlcli -U w -j 'select username from users' \" | grep -i sap """.format(self.db_user)
-        rc, output = unix_cmd(cmd)
-        if output:
-            output = output.replace('|', '').strip()
-            self.schema_user = output
-            return True
-        else:
-            print(color.red, "Unable to find schema user", color.end)
-            return False
+            return(False, color.red+ "Error"+ color.end)
 
 
     def check_x_user(self, os_user, xuser, user, password):
@@ -113,35 +98,39 @@ class Maxdb:
         else:
             temp = 1
             cmd = """su - {} -c \" sqlcli -U {} -j 'select username from users' \" """.format(os_user, xuser)
+        
         rc, output = unix_cmd(cmd)
         if not temp:
             if "OK" in output:
-                return True
+                return (True,color.green + "OK" + color.end)
         else:
             if user.lower() in output.lower():
-                return True
-        # else:
+                return(True, color.green + "OK" + color.end)
+
         cmd2 = """su - {} -c \"xuser set -U {} -d {} -u {},{} \" """.format(os_user, xuser, self.sid, user, password)
         rc2, output2 = unix_cmd(cmd2)
         if rc2 == 0:
             if self.check_x_user(os_user, xuser, user, password):
-                print(color.bold, color.green, xuser, color.end, " xuser created successflly")
-                return True
+                return (True, color.green + "Created" + color.end)
             else:
-                print(color.red, "Error creating {} xuser.".format(xuser), color.end)
-                return False
+                return (False, color.red + "Error" + color.end)
         else:
-            print(color.red, "Error creating {} xuser.".format(xuser), color.end)
-            return False
+            return(False, color.red + "Error" + color.end)
 
-        
+
     def get_db_status(self):
-        cmd = """su - {} -c \"dbmcli -U c db_state \" """.format(self.db_user)
+        cmd = """su - {} -c \"dbmcli -d {} -u control,{} db_state \" """.format(self.db_user, self.sid, self.control_pass)
         rc, output = unix_cmd(cmd)
         if "online" in output.lower():
             return True
         elif "offline" in output.lower():
             return False
+
+
+    def get_version(self):
+        cmd = """su - {} -c \"dbmcli -U c dbm_version \" | grep -i version """.format(self.db_user)
+        rc, output = unix_cmd(cmd)
+        self.db_version = output.split("=")[-1].strip()
 
 
     def get_passwd(self):
@@ -158,36 +147,23 @@ class Maxdb:
             exit(0)
         
         if not self.control_pass:
-            self.control_pass = getpass.getpass(" Control user password : ")
+            self.control_pass = getpass.getpass(" Control user password  : ")
         if not self.superdba_pass:
             self.superdba_pass = getpass.getpass(" Superdba user password : ")
         if not self.schema_pass:
-            self.schema_pass = getpass.getpass("Schema user password : ")
+            self.schema_pass = getpass.getpass(" Schema user password   : ")
 
-        temp = self.check_user_connectivity("control", self.control_pass)
-        if temp:
-            if self.check_x_user(self.db_user, "c", "control", self.control_pass):
-                state = self.get_db_status()
-                if state:
-                    print("DB status : ", color.green, "ONLINE", color.end)
-                else:
-                    print(color.red, "DB is not ONLINE, exiting!", color.end)
-        else:
-            exit(0)
 
-        if self.check_user_connectivity("superdba", self.superdba_pass):
-            self.check_x_user(self.db_user, "w", "superdba", self.superdba_pass)
-            self.superdba = True
+    def get_schema_user(self):
+        cmd = """su - {} -c \"sqlcli -U w -j 'select username from users' \" | grep -i sap | grep -i {} """.format(self.db_user, self.sid)
+        rc, output = unix_cmd(cmd)
+        if output:
+            output = output.replace('|', '').strip()
+            self.schema_user = output
+            return True
         else:
-            print(color.red, "Connection using password provided for superdba user failed, Kindly try again with correct password.", color.end)
-        if self.superdba:
-            temp2 = self.get_schema_user()
-            if temp2:
-                if self.check_user_connectivity(self.schema_user.lower(), self.schema_pass ):
-                    # find schema user function to be added
-                    pass
-                else:
-                    print(color.red, "Connection using password provided for schema user failed, Kindly try again with correct password.", color.end)
+            print(color.red, "Unable to find schema user", color.end)
+            return False
 
 
     def std_param_values(self):
@@ -199,10 +175,11 @@ class Maxdb:
         else:
             maxExclusiveLockCollisionLoops = '-1'
             temp_max = 0
+            
         cmd = """cat /proc/meminfo | grep -i MemTotal | awk '{print $2}' """
         cacheMemorySize = math.ceil(float(unix_cmd(cmd)[1])*0.32/8)
         officialNodeName = "LDDB"+self.sid.upper()
-        
+
         self.std_values = [['DefaultCodePage', 'UNICODE', 0],
             ['MaxDataVolumes', '250', 0],
             ['LogQueueSize' ,'800', 0],
@@ -254,38 +231,116 @@ class Maxdb:
                 print(color.red, "Error changing {} parameter, check manaully.".format(name), color.end)
         except:
             print(color.red, "Error changing {} parameter, check manaully.".format(name), color.end)
-  
-
-    def cmp_val(self, name, std_val, act_val):
-        if std_val == act_val:
-            print("{:<45} ".format(name), color.green,"{:<15} {:<15}".format(act_val, std_val),color.end)
-        else:
-            # print(color.red,"{:<45} {:<15} {:<15}".format(name, std_val, act_val),color.end)
-            self.set_param_to_std(name, std_val, act_val)
 
 
     def check_params(self):
-        print(color.bold, "{:<45} {:<15} {:<15}".format("Parameter name", "Old value", "Standard/New Value"), color.end)
+        print("\n",color.bold, '\033[4m', "{:<45} {:<15} {:<15}".format("Parameter name", "Old value", "Standard/New Value"),'\033[0m', color.end)
         for each in self.std_values:
             strin = """su - {} -c \"dbmcli -U c param_directget {}\" """.format(self.db_user, each[0])
             rc , output = unix_cmd(strin)
             if rc == 0:
-                output = output.split()[2]
-                # compare values
-                self.cmp_val(each[0], each[1], output)
+                try:
+                    output = output.split()[2]
+                    # parameter value is fixed 
+                    if each[2] == 0:
+                        if each[1] == output:
+                            print("{:<45} ".format(each[0]), color.green,"{:<15} {:<15}".format(output, each[1]),color.end)
+                        else:
+                            self.set_param_to_std(each[0], each[1], output)
+                    # parameter is not fixed
+                    elif each[2] == 1:
+                        if output >= each[1]:
+                            print("{:<45} ".format(each[0]), color.green,"{:<15} {:<15}".format(output,">="+ each[1]),color.end)
+                        else:
+                            self.set_param_to_std(each[0], each[1], output)
+                
+                # this except is raised when earlier no value was present for a parameter
+                except:
+                    self.set_param_to_std(each[0] ,each[1], "None")
+                    # print("Error getting parameter \t\t\t", color.red, "{}".format(each[0]), color.end)
             else:
                 print("Error getting parameter \t\t\t", color.red, "{}".format(each[0]), color.end)
 
 
+    def set_dbadtl_param(self):
+        # set parameter if db version is >= 7.9
+        if float(self.db_version[:3]) >= 7.9:
+            try:
+                cmd = """su - {} -c \"dbmcli -U c dbm_configget DBADTL \" """.format(self.db_user)
+                rc, output = unix_cmd(cmd)
+                output = int(output.split()[1])
+                if output == 1:
+                    print("{:<45} ".format("DBADTL"), color.green,"{:<15} {:<15}".format("1", output),color.end)
+                else:
+                    cmd2 = """su - {} -c \"dbmcli -U c dbm_configset DBADTL 1\" """.format(self.db_user)
+                    rc, output2 = unix_cmd(cmd2)
+                    rc, output3 = unix_cmd(cmd)
+                    output3 = int(output3.split()[1])
+                    if output3 == 1:
+                        print("{:<45} ".format("DBADTL"), color.red,"{:<15}".format(output), color.green, "{}".format(output3), color.end)
+                    else:
+                        print(color.red, "Error changing {} parameter, check manaully.".format("DBADTL"), color.end)
+            except:
+                print(color.red, "Error changing {} parameter, check manaully.".format("DBADTL"), color.end)
+        else:
+            return
+
+
 def main():
     maxdb = Maxdb()
+    # if db type is maxdb : else part handled by called function
     if maxdb.check_db_type():
-        print("SID : ", color.green, maxdb.sid, color.end)
         maxdb.get_passwd()
-        maxdb.check_x_users()
+        print("\nSID        : ", color.green, maxdb.sid, color.end)
+
+        app_mssg_cx = app_mssg_sx = app_mssg_smx = mssg_cu = mssg_cx = mssg_su = mssg_sx = mssg_smu = mssg_smx = str(color.red + "NA" + color.end)
+        
+        # get control user connectivity status
+        temp_cu, mssg_cu = maxdb.check_user_connectivity("control", maxdb.control_pass)
+        if temp_cu:
+            temp_cx, mssg_cx =  maxdb.check_x_user(maxdb.db_user, "c", "control", maxdb.control_pass)
+            app_temp_cx, app_mssg_cx =  maxdb.check_x_user(maxdb.app_user, "c", "control", maxdb.control_pass)
+            state = maxdb.get_db_status()
+            if state:
+                print("DB status  : ", color.green, "ONLINE", color.end)
+                maxdb.get_version()
+                print("DB version : ", color.green, maxdb.db_version, color.end)
+            else:
+                print(color.red, "DB is not ONLINE, exiting!", color.end)
+                exit(0)
+        else:
+            print(mssg_cu + color.red + " provided for control user" + color.end)
+            exit(0)
+        print(color.bold, '\033[4m',"{:<15} {:<20} {:20} {}".format("User name", "User status", "sqdsid key", "sidadm key"), color.end, '\033[0m')
+        print("{:<20} {:<30} {:<25} {}".format("control", mssg_cu, mssg_cx, app_mssg_cx))
+
+
+        temp_schema_usr = False
+        # get superdba user connectivity status
+        temp_su, mssg_su = maxdb.check_user_connectivity("superdba", maxdb.superdba_pass)
+        if temp_su:
+            temp_sx, mssg_sx = maxdb.check_x_user(maxdb.db_user, "w", "superdba", maxdb.superdba_pass)
+            app_temp_sx, app_mssg_sx = maxdb.check_x_user(maxdb.app_user, "w", "superdba", maxdb.superdba_pass)
+            if temp_sx:
+                temp_schema_usr = maxdb.get_schema_user()
+        print("{:<20} {:<30} {:<25} {}".format("superdba", mssg_su, mssg_sx, app_mssg_sx))
+
+
+        # get schema user connectivity status
+        if temp_schema_usr:
+            temp_smu, mssg_smu = maxdb.check_user_connectivity(maxdb.schema_user, maxdb.schema_pass)
+            if temp_smu:
+                temp_smx, mssg_smx =  maxdb.check_x_user(maxdb.db_user, "DEFAULT", maxdb.schema_user, maxdb.schema_pass)
+                app_temp_smx, app_mssg_smx =  maxdb.check_x_user(maxdb.app_user, "DEFAULT", maxdb.schema_user, maxdb.schema_pass)
+        print("{:<20} {:<30} {:<25} {}".format(maxdb.schema_user, mssg_smu, mssg_smx, app_mssg_smx))
+
+
         maxdb.std_param_values()
         maxdb.check_params()
-        
-        
+
+        # set .cdb enabling file parameter
+        maxdb.set_dbadtl_param()
+
+
 if __name__ == "__main__":
     main()
