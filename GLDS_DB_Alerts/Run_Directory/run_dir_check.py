@@ -5,15 +5,15 @@
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 02 March 2023               ###
+###       Last updated  : 11 March 2023               ###
 ###       Title         : Run Directory Check         ###
 #########################################################
 
 # Purpose of the script :
 """
-The below script performs the Hana post installation checks as per GLDS standard wiki mentioned below :
 The below script is to check dun directory path's utilization.
 Checks done for : MaxDB, Oracle, DB2/DB6, Sybase
+
 States : 
 OK          : <50
 Warning     : >=50 <70
@@ -47,7 +47,7 @@ def flag_file():
         file_name = "/var/log/nagios/heal_db_rundir_flagfile"
         file_path = "/var/log/nagios"
         exists = os.path.exists(file_path)
-
+        
         # check if /var/log/nagios path exists
         if not exists:
             # print("doesn't exist")
@@ -70,7 +70,7 @@ def flag_file():
     except:
         print("Critical. Error checking flagfile status.")
         return(2)
-
+    
 
 def update_flagfile(val):
     file_name = "/var/log/nagios/heal_db_rundir_flagfile"
@@ -87,7 +87,7 @@ def get_usage():
 
     for each in matches:
         system.percent = int(each.group(1))
-
+    
 
 # get db flavour and SID
 def get_db_type():
@@ -99,7 +99,7 @@ def get_db_type():
     if len(temp) > 1:
         print("Warning. Not a standard system.")
         exit(1)
-
+    
     # no data instance found, exit with OK
     elif len(temp) == 0:
         print("OK. No DB instance found.")
@@ -145,7 +145,7 @@ def sapdb():
     system.param_name = 'run directory path'
     system.path = output.strip()
     return()
-
+    
 
 def sybase():
     cmd = """su - syb%s -c 'printenv PATH' | cut -d: -f1- | tr ":" "\n" | grep -i install """%system.sid.lower()
@@ -205,7 +205,7 @@ def main():
     else:
         print("OK. No standard DB instance present")
         exit(0)
-
+    
     used = get_usage()
     status()
 
