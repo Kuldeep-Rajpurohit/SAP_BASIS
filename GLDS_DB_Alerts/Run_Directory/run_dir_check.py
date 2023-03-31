@@ -1,11 +1,11 @@
-#!/usr/bin/env python3.8
+#!/usr/local/bin/python3.8
 
 
 
 #########################################################
 ###       Author        : Kuldeep Rajpurohit          ###
 ###       Cuser ID      : C5315737                    ###
-###       Last updated  : 11 March 2023               ###
+###       Last updated  : 24 March 2023               ###
 ###       Title         : Run Directory Check         ###
 #########################################################
 
